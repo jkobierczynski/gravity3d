@@ -6,6 +6,8 @@ objects from a file and shows the motion with selectable projections, stereoscop
 
 ---
 
+## Youtube video
+
 [![Watch the video](gravity3d.png)](https://www.youtube.com/watch?v=YDwR3YTCMC0)
 
 ## Features at a glance
