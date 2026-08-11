@@ -7,6 +7,8 @@
   #define XR_USE_PLATFORM_WIN32
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
+  #include <unknwn.h>   // declares IUnknown, which openxr_platform.h's Win32 MSFT
+                        // extension blocks reference (not pulled in by LEAN_AND_MEAN)
 #endif
 #define XR_USE_GRAPHICS_API_OPENGL
 
@@ -20,9 +22,27 @@
 #include <vector>
 
 namespace {
+const char* resultName(XrResult r) {
+    switch (r) {
+        case XR_SUCCESS:                        return "XR_SUCCESS";
+        case XR_ERROR_VALIDATION_FAILURE:       return "XR_ERROR_VALIDATION_FAILURE";
+        case XR_ERROR_RUNTIME_FAILURE:          return "XR_ERROR_RUNTIME_FAILURE";
+        case XR_ERROR_OUT_OF_MEMORY:            return "XR_ERROR_OUT_OF_MEMORY";
+        case XR_ERROR_API_VERSION_UNSUPPORTED:  return "XR_ERROR_API_VERSION_UNSUPPORTED";
+        case XR_ERROR_INITIALIZATION_FAILED:    return "XR_ERROR_INITIALIZATION_FAILED";
+        case XR_ERROR_FUNCTION_UNSUPPORTED:     return "XR_ERROR_FUNCTION_UNSUPPORTED";
+        case XR_ERROR_FEATURE_UNSUPPORTED:      return "XR_ERROR_FEATURE_UNSUPPORTED";
+        case XR_ERROR_EXTENSION_NOT_PRESENT:    return "XR_ERROR_EXTENSION_NOT_PRESENT";
+        case XR_ERROR_FORM_FACTOR_UNAVAILABLE:  return "XR_ERROR_FORM_FACTOR_UNAVAILABLE";
+        case XR_ERROR_GRAPHICS_DEVICE_INVALID:  return "XR_ERROR_GRAPHICS_DEVICE_INVALID";
+        case XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING:
+                                                return "XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING";
+        default:                                return "XR_ERROR_(other)";
+    }
+}
 bool xrOk(XrResult r, const char* what) {
     if (XR_SUCCEEDED(r)) return true;
-    std::fprintf(stderr, "[OpenXR] %s failed (%d)\n", what, (int)r);
+    std::fprintf(stderr, "[OpenXR] %s failed: %s (%d)\n", what, resultName(r), (int)r);
     return false;
 }
 
@@ -73,8 +93,12 @@ bool OpenXRBackend::init() {
     // --- Instance with the OpenGL extension ---
     const char* exts[] = { XR_KHR_OPENGL_ENABLE_EXTENSION_NAME };
     XrInstanceCreateInfo ici{ XR_TYPE_INSTANCE_CREATE_INFO };
-    std::strcpy(ici.applicationInfo.applicationName, "Gravity3D");
-    ici.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    std::snprintf(ici.applicationInfo.applicationName,
+                  XR_MAX_APPLICATION_NAME_SIZE, "%s", "Gravity3D");
+    // Request OpenXR 1.0: SteamVR / VDXR implement 1.0, and asking for the header's
+    // XR_CURRENT_API_VERSION (1.1) makes them reject with API_VERSION_UNSUPPORTED.
+    // This app uses no 1.1-only features.
+    ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     ici.enabledExtensionCount = 1;
     ici.enabledExtensionNames = exts;
     if (!xrOk(xrCreateInstance(&ici, &d.instance), "xrCreateInstance")) return false;

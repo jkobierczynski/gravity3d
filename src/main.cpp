@@ -41,6 +41,11 @@ struct AppState {
     double        lastX = 0, lastY = 0;
     bool          fullscreen = false;
     int           savedX = 100, savedY = 100, savedW = 1280, savedH = 720;
+    // VR "hologram" placement (STAGE space, metres): scale sim units -> metres,
+    // and position the model in front of / above the floor origin.
+    float         vrScale = 0.03f;
+    float         vrHeight = 1.4f;    // metres above the floor
+    float         vrForward = -1.6f;  // metres along stage-forward (-Z)
 };
 
 static const char* projName(ProjectionType t) {
@@ -81,6 +86,7 @@ static void printHelp() {
     "  Speed:        + / -   (faster / slower)\n"
     "  Pause:        Space        Restart: R\n"
     "  Stereo tune:  [ ] eye separation     , . convergence distance\n"
+    "  VR placement: scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset\n"
     "  Camera:       drag = orbit    scroll = zoom\n"
     "  Fullscreen:   F11        Quit: Esc\n"
     "==========================\n\n");
@@ -127,6 +133,16 @@ static void keyCallback(GLFWwindow* w, int key, int, int action, int) {
         case GLFW_KEY_RIGHT_BRACKET: cam.eyeSep = std::min(20.0, cam.eyeSep * 1.1); break;
         case GLFW_KEY_COMMA:  cam.convergence = std::max(1.0,    cam.convergence * 0.9); break;
         case GLFW_KEY_PERIOD: cam.convergence = std::min(8000.0, cam.convergence * 1.1); break;
+        // VR hologram placement (only affects F6): raise/lower and near/far.
+        case GLFW_KEY_UP:    s->vrHeight  += 0.1f; break;
+        case GLFW_KEY_DOWN:  s->vrHeight  -= 0.1f; break;
+        case GLFW_KEY_LEFT:  s->vrForward += 0.1f; break;   // toward you
+        case GLFW_KEY_RIGHT: s->vrForward -= 0.1f; break;   // away
+        case GLFW_KEY_0:
+            s->vrHeight = 1.4f; s->vrForward = -1.6f;
+            { double mr = 1.0; for (auto& b : sim.bodies()) mr = std::max(mr, glm::length(b.pos));
+              s->vrScale = 0.7f / (float)mr; }
+            break;
         case GLFW_KEY_F11: {
             s->fullscreen = !s->fullscreen;
             if (s->fullscreen) {
@@ -163,7 +179,11 @@ static void cursorCallback(GLFWwindow* w, double x, double y) {
 }
 static void scrollCallback(GLFWwindow* w, double, double dy) {
     auto* s = static_cast<AppState*>(glfwGetWindowUserPointer(w));
-    s->cam->distance = std::max(2.0, std::min(6000.0, s->cam->distance * (1.0 - dy * 0.1)));
+    if (s->mode == RenderMode::VR_OpenXR) {
+        s->vrScale = std::max(1e-4f, std::min(50.0f, s->vrScale * (float)(1.0 + dy * 0.1)));
+    } else {
+        s->cam->distance = std::max(2.0, std::min(6000.0, s->cam->distance * (1.0 - dy * 0.1)));
+    }
 }
 
 int main(int argc, char** argv) {
@@ -214,6 +234,8 @@ int main(int argc, char** argv) {
 
     AppState state;
     state.cam = &cam; state.sim = &sim; state.trails = &trails;
+    // Default: shrink the whole system to ~1.4 m across so it reads as a tabletop orrery.
+    state.vrScale = 0.7f / (float)maxR;
     glfwSetWindowUserPointer(window, &state);
     glfwSetKeyCallback(window, keyCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
@@ -294,26 +316,35 @@ int main(int argc, char** argv) {
             bl = StdView::Iso;   br = StdView::Top;
         }
 
-        auto panel = [&](Rect r, StdView sv) {
+        auto panel = [&](Rect r, StdView sv, glm::vec3 tint) {
             glViewport(r.x, r.y, r.w, r.h);
             glEnable(GL_SCISSOR_TEST);
             glScissor(r.x, r.y, r.w, r.h);
-            glClear(GL_DEPTH_BUFFER_BIT);
+            glClearColor(tint.r, tint.g, tint.b, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glm::mat4 V, P;
             stdViewProj(sv, (float)r.w / (float)std::max(1, r.h), V, P);
             drawSceneAndTrails(V, P);
             glDisable(GL_SCISSOR_TEST);
         };
-        panel(TL, tl); panel(TR, tr); panel(BL, bl); panel(BR, br);
+        // Distinct dark tints per physical quadrant so all four panels are unmistakable
+        // (and so an empty panel still reads as a panel). Tints stay put while the
+        // toggle swaps which view sits in each quadrant.
+        glm::vec3 tTL(0.04f, 0.05f, 0.11f), tTR(0.11f, 0.05f, 0.05f);
+        glm::vec3 tBL(0.04f, 0.10f, 0.06f), tBR(0.10f, 0.08f, 0.03f);
+        panel(TL, tl, tTL); panel(TR, tr, tTR); panel(BL, bl, tBL); panel(BR, br, tBR);
 
         // Overlay: dividers + labels (screen space, no depth).
         glViewport(0, 0, fbW, fbH);
         glDisable(GL_DEPTH_TEST);
+        float W = (float)fbW, H = (float)fbH, X = (float)hw, Y = (float)hh;
         std::vector<float> div = {
-            (float)hw, 0.0f, (float)hw, (float)fbH,   // vertical
-            0.0f, (float)hh, (float)fbW, (float)hh    // horizontal
+            X, 0.0f, X, H,        // vertical split
+            0.0f, Y, W, Y,        // horizontal split
+            1.0f, 1.0f, W-1, 1.0f,   W-1, 1.0f, W-1, H-1,   // outer frame
+            W-1, H-1, 1.0f, H-1,     1.0f, H-1, 1.0f, 1.0f
         };
-        renderer.drawScreenLines(fbW, fbH, glm::vec3(0.32f, 0.36f, 0.45f), div);
+        renderer.drawScreenLines(fbW, fbH, glm::vec3(0.55f, 0.60f, 0.72f), div);
 
         auto label = [&](StdView sv) -> const char* {
             switch (sv) {
@@ -335,6 +366,7 @@ int main(int argc, char** argv) {
         renderer.drawText2D(fbW, fbH, (float)fbW * 0.5f - 96.0f, 8.0f, 2.0f,
                             glm::vec3(1.0f, 0.88f, 0.45f),
                             thirdAngle ? "THIRD-ANGLE (AMERICAN)" : "FIRST-ANGLE (ISO / EUROPEAN)");
+        glClearColor(0.02f, 0.02f, 0.05f, 1.0f);
         glEnable(GL_DEPTH_TEST);
     };
 
@@ -352,7 +384,7 @@ int main(int argc, char** argv) {
         // Sample trails.
         if (!sim.paused) {
             const auto& bs = sim.bodies();
-            size_t cap = (state.trailMode == TrailMode::Follow) ? 300
+            size_t cap = (state.trailMode == TrailMode::Follow) ? 700
                        : (state.trailMode == TrailMode::Stay)   ? 30000 : 0;
             for (size_t i = 0; i < bs.size(); ++i) {
                 if (state.trailMode == TrailMode::Off) continue;
@@ -360,7 +392,7 @@ int main(int argc, char** argv) {
                 auto& tr = trails[i];
                 bool add = tr.empty();
                 if (!add) { glm::vec3 d = p - tr.back();
-                            add = (d.x*d.x + d.y*d.y + d.z*d.z) >= 0.0025f; }
+                            add = (d.x*d.x + d.y*d.y + d.z*d.z) >= 0.0009f; }  // ~0.03 unit spacing
                 if (add) tr.push_back(p);
                 if (tr.size() > cap) tr.erase(tr.begin(), tr.begin() + (tr.size() - cap));
             }
@@ -375,8 +407,15 @@ int main(int argc, char** argv) {
             if (!xrTried) { xrTried = true;
                 if (!xr.init()) std::fprintf(stderr, "[OpenXR] init failed; is a runtime running?\n"); }
             if (xr.isReady()) {
+                // Orbit angles (mouse drag) rotate the whole hologram about its centre.
+                glm::mat4 rot = glm::rotate(glm::mat4(1.0f), (float)cam.azimuth,   glm::vec3(0, 1, 0))
+                              * glm::rotate(glm::mat4(1.0f), (float)cam.elevation, glm::vec3(1, 0, 0));
+                glm::mat4 world = glm::translate(glm::mat4(1.0f),
+                                      glm::vec3(0.0f, state.vrHeight, state.vrForward))
+                                * rot
+                                * glm::scale(glm::mat4(1.0f), glm::vec3(state.vrScale));
                 xr.renderFrame([&](const glm::mat4& v, const glm::mat4& p, int) {
-                    drawSceneAndTrails(v, p);
+                    drawSceneAndTrails(v * world, p);
                 });
             }
             // Mirror a mono view to the desktop window.
