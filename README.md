@@ -15,7 +15,7 @@ objects from a file and shows the motion with selectable projections, stereoscop
 | "American projection" (third-angle) | `F7` **multiview**; key `5` toggles third-angle (American) / first-angle (ISO/European) — see **Projection standards** |
 | Anaglyph 3D | `F2` — red/cyan |
 | Straight & cross-eye stereo | `F3` (parallel) · `F4` (cross-eye) |
-| VR headset | `F5` side-by-side (phone/Cardboard) · `F6` OpenXR (real PC-VR headset) |
+| VR headset | `F5` side-by-side (phone/Cardboard) · `F6` OpenXR (real PC-VR headset, via SteamVR) — see **Running in VR (OpenXR)** |
 | Simulation speed | `+` / `-` |
 | Pause / restart | `Space` / `R` |
 | Trail stays vs. moves with object | `T` cycles Off → Follow (moves along) → Stay (persists) |
@@ -46,8 +46,9 @@ cmake -S . -B build -DENABLE_OPENXR=ON
 cmake --build build --config Release
 ```
 
-This pulls the Khronos OpenXR-SDK and enables `F6`. You need an OpenXR runtime
-running (SteamVR, Oculus/Meta, WMR, …) and a headset. See the caveat at the bottom.
+This pulls the Khronos OpenXR-SDK and enables the `F6` headset path. There's an
+important runtime requirement (it must be an OpenGL-capable OpenXR runtime, i.e.
+SteamVR) — see **Running in VR (OpenXR)** below for the full setup.
 
 > Builds on Linux too (needs `cmake`, `libgl1-mesa-dev`, `xorg-dev`); macOS is
 > limited to OpenGL 3.3 / 4.1 and has no OpenXR path.
@@ -67,11 +68,91 @@ Trails        T    cycle Off / Follow / Stay
 Speed         + / -
 Pause         Space          Restart   R
 Stereo tune   [ ] eye separation      , . convergence distance
+VR placement  scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset
 Camera        drag = orbit    scroll = zoom   (zoom also scales the multiview)
 Fullscreen    F11            Quit  Esc
 ```
 
-Current state is always shown in the window title bar.
+Current state is always shown in the window title bar. VR-specific controls (`F6`)
+are described under **Running in VR (OpenXR)** below.
+
+---
+
+## Running in VR (OpenXR)
+
+`F6` renders true per-eye stereo to a PC-VR headset through OpenXR. It has been run
+successfully on a **Meta Quest** via Link / Virtual Desktop → SteamVR. The scene
+appears as a small "hologram" floating in front of you that you can scale, move and
+rotate.
+
+### 1. Build with the OpenXR path enabled
+
+It's **off by default**. Turn it on and rebuild:
+
+```bat
+cmake -S . -B build -DENABLE_OPENXR=ON
+cmake --build build --config Release
+```
+
+### 2. Use SteamVR as the OpenXR runtime (important)
+
+This app renders with **OpenGL**. Meta's native PC runtime (Oculus / Horizon Link)
+and Virtual Desktop's own **VDXR** runtime only accept Direct3D/Vulkan, so an OpenGL
+app cannot create a session on them. **SteamVR's runtime does support OpenGL**
+(`XR_KHR_opengl_enable`), so route through SteamVR:
+
+- **Meta Quest:** connect via **Link / Air Link**, *or* in **Virtual Desktop** set the
+  streaming mode to **SteamVR** (not VDXR). Launch SteamVR — it picks up the Quest as
+  the HMD.
+- **Make SteamVR the active OpenXR runtime:**
+  *SteamVR → Settings → Developer → Set SteamVR as OpenXR Runtime.*
+
+### 3. Run and press `F6`
+
+The console prints OpenXR progress. On success the headset shows the scene in front of
+you, and the desktop window keeps mirroring a mono view (handy for onlookers).
+
+### VR placement controls
+
+The simulation is scaled down and floated in front of you (it is **not** room-scale).
+Tune it live:
+
+| Control | Action |
+|---|---|
+| **scroll** | scale the whole model up / down |
+| **arrow keys** | Up/Down raise/lower · Left/Right nearer/farther |
+| **mouse drag** | rotate the whole hologram (tilt a flat system to see the disc) |
+| **`0`** | reset placement to defaults (~1.4 m across, 1.4 m up, 1.6 m in front) |
+
+The default scale is derived from the scene size. The hologram is anchored to the
+**STAGE forward** direction, so it appears the way your play space faces — if it isn't
+in front of you, turn toward it or nudge it with the arrows.
+
+### Scope & caveats
+
+- **Viewer only:** head tracking, no controller input.
+- **Anchored hologram** in STAGE (floor-origin) space — not a room-scale walk-around.
+- **Runtime support:** works on any runtime exposing `XR_KHR_opengl_enable`
+  (SteamVR confirmed; Monado should work). The native **Oculus/Meta**, **WMR** and
+  **VDXR** runtimes are Direct3D/Vulkan-only and will not run it — hence the SteamVR
+  requirement above.
+- The app requests **OpenXR 1.0** (SteamVR/VDXR implement 1.0); it uses no 1.1 features.
+
+### Troubleshooting
+
+Errors now print their names, so the console tells you what failed. Common ones:
+
+| Message | Meaning / fix |
+|---|---|
+| `init failed; is a runtime running?` and nothing else | OpenXR path wasn't compiled in — rebuild with `-DENABLE_OPENXR=ON`. |
+| `xrCreateInstance failed: XR_ERROR_API_VERSION_UNSUPPORTED (-4)` | Runtime older than the requested API version. The app asks for 1.0, so this only appears on very old runtimes. |
+| `xrCreateInstance failed: XR_ERROR_EXTENSION_NOT_PRESENT (-9)` | Active runtime has no OpenGL support — switch the active OpenXR runtime to **SteamVR** (step 2). |
+| `XR_ERROR_FORM_FACTOR_UNAVAILABLE (-35)` | Runtime is up but no headset is presenting yet — make sure SteamVR shows the headset **ready/green**, and that Virtual Desktop routes to SteamVR. |
+| Nothing in the headset, but the desktop mirror animates | You're likely on `F5` (side-by-side, a phone/Cardboard mode). For a PC headset use **`F6`**. |
+
+> Note: `F5` VR-SBS + fullscreen (`F11`) is for a phone-in-holder viewer. On a PC
+> headset it just shows a flat side-by-side image on the mirrored desktop and can
+> freeze when going exclusive-fullscreen — use `F6` for real stereo instead.
 
 ---
 
@@ -145,9 +226,9 @@ cabinet) or a specific axonometric ratio for those presets, it's a one-line chan
   cross-eye is just which image goes to which half. If depth looks inverted for you,
   nudge eye separation or swap `F3`/`F4`.
 
-- **VR — honest status.** `F5` (side-by-side) works today with a phone-in-holder
-  viewer or any display that accepts SBS. `F6` uses OpenXR for a real PC-VR headset;
-  the backend is complete (instance → session → per-eye swapchains → frame loop →
-  projection layer) and compiles against the official SDK, but it hasn't been run on
-  a headset in this project, so expect to test and possibly tweak per-runtime details.
-  It's viewer-only (head tracking, no controller input).
+- **VR.** `F5` (side-by-side) works with a phone-in-holder viewer or any display that
+  accepts SBS. `F6` is the real OpenXR headset path (instance → session → per-eye
+  swapchains → frame loop → projection layer), confirmed on a Meta Quest via
+  Link / Virtual Desktop → SteamVR. It's viewer-only (head tracking, no controllers)
+  and needs an OpenGL-capable OpenXR runtime — full setup under
+  **Running in VR (OpenXR)**.
