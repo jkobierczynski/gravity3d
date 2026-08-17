@@ -6,6 +6,10 @@ objects from a file and shows the motion with selectable projections, stereoscop
 
 ---
 
+## Screenshot
+
+![Alt text](gravity3d.jpg "Gravity3d screenshot")
+
 ## Features at a glance
 
 | Requirement | How it's covered |
