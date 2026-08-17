@@ -193,11 +193,11 @@ dominant mass *M*, set speed = `sqrt(G*M/r)` perpendicular to the radius.
 ### Bundled sample scenes
 
 `data/` ships with a set of ready-to-run systems of increasing size, from a 5-body
-binary up to a 3000-star galaxy — a rotating galactic disk, a random cloud, a
-globular cluster, merging clusters, and two colliding galaxies. Pass one on the
-command line, e.g. `gravity3d.exe data\08_galaxy_disk_3000.csv`. See
-`data/SCENES.md` for the full list and tips. (The big disk is a good one for the
-`G` FMM toggle.)
+binary up to a **100 000-body** cloud — a rotating galactic disk, random and uniform
+clouds, a globular cluster, merging clusters, colliding galaxies, and several large
+systems meant for exercising the FMM. Pass one on the command line, e.g.
+`gravity3d.exe data\13_uniform_cloud_100k.csv`. See `data/SCENES.md` for the full list
+and tips. (The large clouds `09`–`13` are the ones to try the `G` FMM toggle on.)
 
 Physics: velocity-Verlet integration, with a choice of gravity solver — direct
 O(N²) pairwise (default) or an O(N) Fast Multipole Method (press `G`). Both use
