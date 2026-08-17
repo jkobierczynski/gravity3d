@@ -1,4 +1,5 @@
 #include "Simulation.h"
+#include "FMM3D.h"
 #include <algorithm>
 
 void Simulation::setInitial(const std::vector<Body>& bodies, bool zeroMomentum) {
@@ -28,6 +29,18 @@ void Simulation::reset() {
 void Simulation::computeAccelerations(const std::vector<Body>& b,
                                       std::vector<glm::dvec3>& outAcc) const {
     const size_t n = b.size();
+
+    if (useFMM && n > 0) {
+        // Fast Multipole Method path (O(N)). Far-field uses the exact kernel;
+        // Plummer softening is applied in the near-field, matching the direct sum.
+        std::vector<glm::dvec3> pos(n);
+        std::vector<double>     mass(n);
+        for (size_t i = 0; i < n; ++i) { pos[i] = b[i].pos; mass[i] = b[i].mass; }
+        fmm::accelerations(pos, mass, G, softening, fmmOrder, outAcc);
+        return;
+    }
+
+    // Direct O(n^2) pairwise sum (default / ground truth).
     outAcc.assign(n, glm::dvec3(0.0));
     const double eps2 = softening * softening;
     for (size_t i = 0; i < n; ++i) {

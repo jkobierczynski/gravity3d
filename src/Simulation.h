@@ -11,6 +11,11 @@ public:
     double timeScale  = 1.0;    // simulation-speed multiplier
     bool   paused     = false;
 
+    // Gravity solver selection. Direct O(n^2) is the default and ground truth;
+    // the FMM path is an O(N) approximation that pays off at large N.
+    bool   useFMM     = false;  // false = direct pairwise, true = Fast Multipole Method
+    int    fmmOrder   = 4;      // FMM expansion order p (accuracy vs cost)
+
     // Store the initial state (optionally remove any net drift of the whole system).
     void setInitial(const std::vector<Body>& bodies, bool zeroMomentum);
 

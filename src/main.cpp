@@ -85,6 +85,7 @@ static void printHelp() {
     "  Trails:       T  cycle Off / Follow / Stay\n"
     "  Speed:        + / -   (faster / slower)\n"
     "  Pause:        Space        Restart: R\n"
+    "  Solver:       G  toggle Direct <-> FMM     ; ' lower/raise FMM order\n"
     "  Stereo tune:  [ ] eye separation     , . convergence distance\n"
     "  VR placement: scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset\n"
     "  Camera:       drag = orbit    scroll = zoom\n"
@@ -129,6 +130,10 @@ static void keyCallback(GLFWwindow* w, int key, int, int action, int) {
             sim.timeScale = std::max(0.01, sim.timeScale / 1.25); break;
         case GLFW_KEY_SPACE: sim.paused = !sim.paused; break;
         case GLFW_KEY_R:     sim.reset(); clearTrails(); break;
+        // Gravity solver: Direct (default) <-> FMM, and FMM order.
+        case GLFW_KEY_G:          sim.useFMM   = !sim.useFMM;                     break;
+        case GLFW_KEY_SEMICOLON:  sim.fmmOrder = std::max(1,  sim.fmmOrder - 1);  break;
+        case GLFW_KEY_APOSTROPHE: sim.fmmOrder = std::min(12, sim.fmmOrder + 1);  break;
         case GLFW_KEY_LEFT_BRACKET:  cam.eyeSep = std::max(0.01, cam.eyeSep * 0.9); break;
         case GLFW_KEY_RIGHT_BRACKET: cam.eyeSep = std::min(20.0, cam.eyeSep * 1.1); break;
         case GLFW_KEY_COMMA:  cam.convergence = std::max(1.0,    cam.convergence * 0.9); break;
@@ -485,6 +490,9 @@ int main(int argc, char** argv) {
             titleTimer = 0.0;
             char title[320];
             char proj[64];
+            char solver[32];
+            if (sim.useFMM) std::snprintf(solver, sizeof(solver), "FMM p=%d", sim.fmmOrder);
+            else            std::snprintf(solver, sizeof(solver), "direct");
             if (state.mode == RenderMode::Multiview)
                 std::snprintf(proj, sizeof(proj), "%s",
                     state.thirdAngle ? "3rd-angle(US)" : "1st-angle(EU)");
@@ -492,9 +500,10 @@ int main(int argc, char** argv) {
                 std::snprintf(proj, sizeof(proj), "%s%s", projName(cam.type),
                     (cam.perspective && cam.type != ProjectionType::Oblique) ? "(persp)" : "");
             std::snprintf(title, sizeof(title),
-                "Gravity3D | %s | proj:%s | trails:%s | speed:%.2fx | %s | t=%.1f",
+                "Gravity3D | %s | proj:%s | trails:%s | speed:%.2fx | %s | %s | t=%.1f",
                 modeName(state.mode), proj,
                 trailName(state.trailMode), sim.timeScale,
+                solver,
                 sim.paused ? "PAUSED" : "running", sim.simTime());
             glfwSetWindowTitle(window, title);
         }

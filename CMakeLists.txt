@@ -36,6 +36,7 @@ target_include_directories(glad PUBLIC src/third_party/glad/include)
 add_executable(gravity3d
     src/main.cpp
     src/Simulation.cpp
+    src/FMM3D.cpp
     src/FileLoader.cpp
     src/Camera.cpp
     src/Renderer.cpp)

@@ -6,10 +6,6 @@ objects from a file and shows the motion with selectable projections, stereoscop
 
 ---
 
-## Youtube video
-
-[![Watch the video](gravity3d.png)](https://www.youtube.com/watch?v=YDwR3YTCMC0)
-
 ## Features at a glance
 
 | Requirement | How it's covered |
@@ -21,6 +17,7 @@ objects from a file and shows the motion with selectable projections, stereoscop
 | Straight & cross-eye stereo | `F3` (parallel) · `F4` (cross-eye) |
 | VR headset | `F5` side-by-side (phone/Cardboard) · `F6` OpenXR (real PC-VR headset, via SteamVR) — see **Running in VR (OpenXR)** |
 | Simulation speed | `+` / `-` |
+| Gravity solver | `G` toggles Direct O(N²) ↔ **Fast Multipole Method** O(N); `;`/`'` set FMM order — see **Gravity solver: direct vs FMM** |
 | Pause / restart | `Space` / `R` |
 | Trail stays vs. moves with object | `T` cycles Off → Follow (moves along) → Stay (persists) |
 
@@ -71,6 +68,7 @@ Perspective   P    toggle ortho/perspective for Front/Iso/Axono
 Trails        T    cycle Off / Follow / Stay
 Speed         + / -
 Pause         Space          Restart   R
+Solver        G    toggle Direct <-> FMM        ; '  lower / raise FMM order
 Stereo tune   [ ] eye separation      , . convergence distance
 VR placement  scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset
 Camera        drag = orbit    scroll = zoom   (zoom also scales the multiview)
@@ -188,12 +186,66 @@ Example (`data/sample_system.csv`): a heavy central star with four orbiters, one
 an inclined elliptical path. For a roughly circular orbit at radius *r* around a
 dominant mass *M*, set speed = `sqrt(G*M/r)` perpendicular to the radius.
 
-Physics: velocity-Verlet integration, O(n²) pairwise gravity with Plummer softening.
-Good for tens of bodies; not a Barnes–Hut tree, so it's not meant for thousands.
+### Bundled sample scenes
+
+`data/` ships with a set of ready-to-run systems of increasing size, from a 5-body
+binary up to a 3000-star galaxy — a rotating galactic disk, a random cloud, a
+globular cluster, merging clusters, and two colliding galaxies. Pass one on the
+command line, e.g. `gravity3d.exe data\08_galaxy_disk_3000.csv`. See
+`data/SCENES.md` for the full list and tips. (The big disk is a good one for the
+`G` FMM toggle.)
+
+Physics: velocity-Verlet integration, with a choice of gravity solver — direct
+O(N²) pairwise (default) or an O(N) Fast Multipole Method (press `G`). Both use
+Plummer softening. See **Gravity solver: direct vs FMM** below.
 
 ---
 
 ## Notes & interpretations
+
+### Gravity solver: direct vs FMM
+
+The force calculation is the bottleneck of any N-body code. Two solvers are built in,
+switchable live with `G`:
+
+- **Direct** (default) — the exact O(N²) pairwise sum. Simple, exact, and the fastest
+  option for the small N of a typical interactive scene. It's also the ground truth.
+- **FMM** — a 3D Laplace **Fast Multipole Method**: complex solid-harmonic expansions
+  (P2M → M2M → M2L → L2L → L2P) over a uniform octree, with a direct near-field. This
+  is the O(N) algorithm that makes very large N tractable.
+
+**Accuracy.** The FMM is an approximation whose error is controlled by the expansion
+order *p* (`;` / `'` to change it). Measured relative L2 error of the accelerations
+against the direct sum, on a uniform random cloud:
+
+| order *p* | 2 | 4 | 6 | 8 |
+|---|---|---|---|---|
+| rel. L2 error | ~9×10⁻³ | ~9×10⁻⁴ | ~1×10⁻⁴ | ~2×10⁻⁵ |
+
+The default is *p* = 4 (≈0.1 %), which is comfortably accurate for visualisation. Each
+translation operator was validated independently against direct summation, and the two
+solvers were checked to produce matching trajectories through the integrator.
+
+**Performance / when to use which.** The FMM has real per-step overhead (building the
+tree and the expansions), so for small N the direct sum wins outright. The crossover on
+one core is around **N ≈ 5000**; beyond it the FMM pulls away quickly (roughly linear
+scaling), e.g. at N = 200 000 it is tens of × faster than direct. Rule of thumb: leave
+it on **Direct** for ordinary scenes, switch to **FMM** (`G`) when you want to push the
+body count into the thousands and beyond. The window title shows the active solver.
+
+**Honest caveats.**
+- The octree is **uniform**, which is ideal for roughly space-filling clouds. Highly
+  clustered mass would benefit from an adaptive tree (a natural extension) — results are
+  still correct with a uniform tree, just less efficient.
+- Softening is applied in the **near-field only** (the exact 1/r kernel is used in the
+  far field). This is physically consistent because far-field pairs are well separated,
+  so softening there would be negligible anyway; close encounters — where softening
+  matters — always fall in the near-field.
+- Far-field forces are the gradient of the local expansion, taken by central finite
+  differences of a smooth field (the near-field uses the exact analytic softened force).
+- It's a single-threaded scalar implementation. Production FMMs add rotation-based or
+  FFT M2L, threading and SIMD; those are the obvious next speedups, not correctness
+  fixes.
 
 ### Projection standards (the "American projection")
 
