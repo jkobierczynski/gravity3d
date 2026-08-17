@@ -214,11 +214,22 @@ acceleration is an independent sum — so the heavy loops run across all CPU cor
 
 - **Multithreading.** A small persistent thread pool spreads the work over every core.
   The direct solver parallelises over target bodies; the FMM parallelises each of its
-  passes (P2M over leaves, M2L over target boxes, L2L over parents, and the leaf
-  near/far evaluation over leaves). Thread count is auto-detected; override it with the
-  `GRAVITY3D_THREADS` environment variable (e.g. `GRAVITY3D_THREADS=4`), and the active
-  count is printed at startup. It scales close to linearly with cores for the direct
-  solver and strongly for the FMM.
+  passes. The two dominant phases — the M2L translations and the near/far evaluation —
+  are both balanced across threads: M2L is flattened into one pass over all target cells
+  (so coarse tree levels with few cells don't starve threads), and the evaluation is
+  parallelised **over bodies rather than cells**, so a dense core (which piles most bodies
+  into one octree cell) still spreads evenly instead of landing on a single thread. The
+  serial part (tree build, coarse M2M/L2L) is under ~1% of a solve, so scaling is close
+  to linear on space-filling scenes. Thread count is auto-detected; override with
+  `GRAVITY3D_THREADS`, and the active count prints at startup.
+- **Seeing where the time goes.** Set `GRAVITY3D_FMM_PROFILE=1` to print a per-phase
+  millisecond breakdown (build / P2M / M2M / M2L / L2L / eval) every 30 solves — handy
+  for confirming the split across your cores.
+- **If not all cores look busy.** Two normal reasons, neither a bug: (1) for small or
+  fast scenes the FMM finishes a frame in well under the 60 fps budget, so the app idles
+  waiting for v-sync — use a large scene (30k–100k) or raise the speed (`+`) to keep the
+  cores fed; (2) very concentrated systems (a dense core, a thin disk) do more of their
+  work in the near-field, which is heavier but still balanced across bodies.
 - **Deterministic.** Every output value is produced by a single thread in a fixed order,
   so results are *bit-for-bit identical* regardless of the thread count — threading only
   changes speed, never the trajectory. (Verified: 1-thread and 8-thread runs match

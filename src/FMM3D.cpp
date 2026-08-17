@@ -3,6 +3,9 @@
 #include <complex>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <chrono>
 #include <unordered_map>
 #include <algorithm>
 
@@ -24,6 +27,13 @@ namespace {
 
 using cd  = std::complex<double>;
 using dv3 = glm::dvec3;
+
+// ---- optional per-phase profiling (GRAVITY3D_FMM_PROFILE=1) ----
+using Clock = std::chrono::high_resolution_clock;
+struct Prof { double build=0,p2m=0,m2m=0,m2l=0,l2l=0,eval=0; int n=0; };
+Prof g_prof;
+bool profEnabled(){ static int e=-1; if(e<0){ const char* s=std::getenv("GRAVITY3D_FMM_PROFILE"); e=(s&&std::atoi(s))?1:0; } return e; }
+inline double msSince(Clock::time_point t){ return std::chrono::duration<double,std::milli>(Clock::now()-t).count(); }
 
 // ---- shared tables (single-threaded use) ----
 std::vector<double> g_fact;
@@ -169,6 +179,8 @@ struct Tree {
     std::vector<std::vector<Box>> lvl;
     std::unordered_map<uint64_t,std::vector<cd>> m2lDir;   // integer offset -> Y (deg 2p)
     std::vector<cd> childDir[8];                            // 8 child-direction Y (deg p)
+    std::vector<int> bodyToLeaf;                            // body index -> leaf box index
+    std::vector<std::vector<int>> nbrLeaves;               // per leaf: indices of the <=27 neighbour leaves
 
     dv3 boxCenter(int l,int ix,int iy,int iz){
         double cs = S/double(1<<l);
@@ -206,6 +218,22 @@ struct Tree {
             dv3 t((s&1)?1:-1,(s&2)?1:-1,(s&4)?1:-1);
             double r,th,ph; sph(t,r,th,ph); buildY(th,ph,p,childDir[s]);
         }
+        // body -> leaf, and each leaf's neighbour leaves (for balanced, per-body eval).
+        bodyToLeaf.assign(pos.size(), -1);
+        for (int bi = 0; bi < (int)lvl[L].size(); ++bi)
+            for (int i : lvl[L][bi].bodies) bodyToLeaf[i] = bi;
+        int NL = 1<<L;
+        auto& leaves = lvl[L]; auto& lmap = lvlMap[L];
+        nbrLeaves.assign(leaves.size(), {});
+        parallel::forRange(leaves.size(), [&](size_t lo, size_t hi){
+            for (size_t bi = lo; bi < hi; ++bi){
+                Box& B = leaves[bi]; auto& out = nbrLeaves[bi];
+                for (int nx=B.ix-1;nx<=B.ix+1;++nx) for (int ny=B.iy-1;ny<=B.iy+1;++ny) for (int nz=B.iz-1;nz<=B.iz+1;++nz){
+                    if (nx<0||ny<0||nz<0||nx>=NL||ny>=NL||nz>=NL) continue;
+                    auto it = lmap.find(keyOf(nx,ny,nz)); if (it != lmap.end()) out.push_back(it->second);
+                }
+            }
+        });
     }
     const std::vector<cd>& m2lTable(int dx,int dy,int dz){
         uint64_t k = ((uint64_t)(dx+16)<<20)|((uint64_t)(dy+16)<<10)|(uint64_t)(dz+16);
@@ -228,6 +256,8 @@ struct Tree {
     }
     void solve(const std::vector<dv3>& pos, const std::vector<double>& q, std::vector<dv3>& g){
         int N = 1<<L;
+        const bool prof = profEnabled();
+        auto T = Clock::now();
         prepM2L();   // fill direction cache once, single-threaded
 
         // ---- upward: P2M at leaves (parallel over leaves) ----
@@ -240,6 +270,8 @@ struct Tree {
                 }
             });
         }
+        if (prof){ g_prof.p2m += msSince(T); T = Clock::now(); }
+
         // ---- upward: M2M (parallel over parents; each parent reads its children) ----
         for (int l = L-1; l >= 0; --l){
             double csP = S/double(1<<l); double rho = std::sqrt(3.0)*0.25*csP;
@@ -258,17 +290,24 @@ struct Tree {
                 }
             });
         }
+        if (prof){ g_prof.m2m += msSince(T); T = Clock::now(); }
+
         // ---- zero locals ----
         for (int l = 0; l <= L; ++l) for (auto& b : lvl[l]) b.L.zero();
 
-        // ---- M2L over interaction lists (parallel over target boxes) ----
-        for (int l = 2; l <= L; ++l){
-            int Nl = 1<<l; double cs = S/double(Nl);
-            auto& boxes = lvl[l]; auto& map = lvlMap[l];
-            parallel::forRange(boxes.size(), [&](size_t lo, size_t hi){
+        // ---- M2L: flatten ALL target boxes across levels >=2 into ONE parallel pass.
+        // Per-level box counts are tiny at coarse levels; flattening gives one big,
+        // balanced parallel region instead of several under-populated ones. Each target
+        // writes only its own local expansion, so there is no write conflict. ----
+        {
+            std::vector<std::pair<int,int>> tgt;   // (level, boxIndex)
+            for (int l = 2; l <= L; ++l) for (int bi = 0; bi < (int)lvl[l].size(); ++bi) tgt.emplace_back(l, bi);
+            parallel::forRange(tgt.size(), [&](size_t lo, size_t hi){
                 thread_local std::vector<double> rp;
-                for (size_t bi = lo; bi < hi; ++bi){
-                    Box& B = boxes[bi];
+                for (size_t ti = lo; ti < hi; ++ti){
+                    int l = tgt[ti].first; int Nl = 1<<l; double cs = S/double(Nl);
+                    auto& boxes = lvl[l]; auto& map = lvlMap[l];
+                    Box& B = boxes[tgt[ti].second];
                     int ppx=B.ix>>1, ppy=B.iy>>1, ppz=B.iz>>1;
                     for (int nx=ppx-1;nx<=ppx+1;++nx) for (int ny=ppy-1;ny<=ppy+1;++ny) for (int nz=ppz-1;nz<=ppz+1;++nz){
                         if (nx<0||ny<0||nz<0||nx>=(Nl>>1)||ny>=(Nl>>1)||nz>=(Nl>>1)) continue;
@@ -285,7 +324,9 @@ struct Tree {
                 }
             });
         }
-        // ---- downward: L2L (parallel over parents; each child has one parent) ----
+        if (prof){ g_prof.m2l += msSince(T); T = Clock::now(); }
+
+        // ---- downward: L2L (level-sequential; parallel over parents per level) ----
         for (int l = 2; l <= L-1; ++l){
             double csP = S/double(1<<l); double rho = std::sqrt(3.0)*0.25*csP;
             std::vector<double> rpC; powfill(rho, p, rpC);
@@ -303,36 +344,53 @@ struct Tree {
                 }
             });
         }
-        // ---- leaf evaluation: far-field (FD of local) + near-field (softened direct) ----
+        if (prof){ g_prof.l2l += msSince(T); T = Clock::now(); }
+
+        // ---- evaluation: parallelize over BODIES, not leaves.
+        // A dense core puts most bodies in one leaf; parallelizing over leaves would
+        // hand that leaf's whole near-field to a single thread (the "only 2 cores busy"
+        // symptom). Over bodies, each target is an independent, equal-sized task, so the
+        // work spreads evenly even for very concentrated systems. Each body writes only
+        // its own g[i]. ----
         g.assign(pos.size(), dv3(0.0));
         double h = cell*1e-2;
         {
-            auto& leaves = lvl[L]; auto& map = lvlMap[L];
-            parallel::forRange(leaves.size(), [&](size_t lo, size_t hi){
-                for (size_t bi = lo; bi < hi; ++bi){
-                    Box& B = leaves[bi];
-                    for (int i : B.bodies){
-                        dv3 d = pos[i]-B.center;
-                        dv3 gf(
-                            (L2P(B.L,d+dv3(h,0,0))-L2P(B.L,d-dv3(h,0,0)))/(2*h),
-                            (L2P(B.L,d+dv3(0,h,0))-L2P(B.L,d-dv3(0,h,0)))/(2*h),
-                            (L2P(B.L,d+dv3(0,0,h))-L2P(B.L,d-dv3(0,0,h)))/(2*h));
-                        g[i] += gf;
-                    }
-                    for (int nx=B.ix-1;nx<=B.ix+1;++nx) for (int ny=B.iy-1;ny<=B.iy+1;++ny) for (int nz=B.iz-1;nz<=B.iz+1;++nz){
-                        if (nx<0||ny<0||nz<0||nx>=N||ny>=N||nz>=N) continue;
-                        auto it = map.find(keyOf(nx,ny,nz)); if (it == map.end()) continue;
-                        Box& C = leaves[it->second];
-                        for (int i : B.bodies) for (int j : C.bodies){ if (i==j) continue;
-                            dv3 dd = pos[j]-pos[i];
+            auto& leaves = lvl[L];
+            parallel::forRange(pos.size(), [&](size_t lo, size_t hi){
+                for (size_t i = lo; i < hi; ++i){
+                    int lb = bodyToLeaf[i]; if (lb < 0) continue;
+                    Box& B = leaves[lb];
+                    // far field: gradient of the local expansion by central differences
+                    dv3 d = pos[i]-B.center;
+                    dv3 gi(
+                        (L2P(B.L,d+dv3(h,0,0))-L2P(B.L,d-dv3(h,0,0)))/(2*h),
+                        (L2P(B.L,d+dv3(0,h,0))-L2P(B.L,d-dv3(0,h,0)))/(2*h),
+                        (L2P(B.L,d+dv3(0,0,h))-L2P(B.L,d-dv3(0,0,h)))/(2*h));
+                    // near field: exact softened sum over this leaf + its neighbours
+                    const dv3 pi = pos[i];
+                    for (int cbi : nbrLeaves[lb]){
+                        for (int j : leaves[cbi].bodies){
+                            dv3 dd = pos[j]-pi;
                             double r2 = dd.x*dd.x+dd.y*dd.y+dd.z*dd.z+eps2;
                             double inv = 1.0/std::sqrt(r2);
-                            g[i] += (q[j]*inv*inv*inv)*dd;
+                            gi += (q[j]*inv*inv*inv)*dd;   // j==i -> dd=0 adds nothing
                         }
                     }
-                    for (int i : B.bodies) g[i] *= G;
+                    g[i] = G*gi;
                 }
             });
+        }
+        if (prof){
+            g_prof.eval += msSince(T);
+            if (++g_prof.n >= 30){
+                double n = g_prof.n;
+                std::fprintf(stderr,
+                    "[FMM/%d thr] avg ms over %d solves: build=%.2f P2M=%.2f M2M=%.2f M2L=%.2f L2L=%.2f eval=%.2f | total=%.2f\n",
+                    (int)parallel::threadCount(), (int)n,
+                    g_prof.build/n, g_prof.p2m/n, g_prof.m2m/n, g_prof.m2l/n, g_prof.l2l/n, g_prof.eval/n,
+                    (g_prof.build+g_prof.p2m+g_prof.m2m+g_prof.m2l+g_prof.l2l+g_prof.eval)/n);
+                g_prof = Prof{};
+            }
         }
     }
 };
@@ -360,7 +418,9 @@ void accelerations(const std::vector<dv3>& pos, const std::vector<double>& mass,
     int L = (depth < 0) ? autoDepth(N, order) : depth;
 
     Tree t; t.p = order; t.L = L; t.G = G; t.eps2 = softening*softening;
+    auto tb = Clock::now();
     t.build(pos);
+    if (profEnabled()) g_prof.build += msSince(tb);
     t.solve(pos, mass, accOut);
 }
 
