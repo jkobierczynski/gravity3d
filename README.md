@@ -8,7 +8,7 @@ objects from a file and shows the motion with selectable projections, stereoscop
 
 ## Screenshot
 
-![Alt text](gravity3d.jpg)
+![Alt text](gravity3d.png)
 
 ## Features at a glance
 
