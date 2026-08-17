@@ -1,0 +1,14 @@
+# Binary stars with three circumbinary planets.
+# Hierarchical: two equal stars orbit their barycentre; planets orbit the pair.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.05
+@dt=0.002
+@timescale=2.0
+@zeroMomentum=1
+starA,50,-3,0,0,0,-2.04124,0,1,0.8,0.5,1.1
+starB,50,3,0,0,0,2.04124,0,0.7,0.85,1,1.1
+planet0,0.02,-8.96273,-10.755,0,2.05313,-1.71099,0,0.6,0.9,0.6,0.35
+planet1,0.02,18.7659,2.97352,0,-0.359038,2.26589,0,0.5,0.75,0.8,0.35
+planet2,0.02,-3.91541,24.6915,0,-1.97532,-0.313233,0,0.4,0.6,1,0.35
