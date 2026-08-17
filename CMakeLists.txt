@@ -4,6 +4,12 @@ project(Gravity3D LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Default to an optimized build; force-enable per-CPU vectorization by default.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+option(GRAVITY3D_NATIVE "Optimize for this machine's CPU (-O3 -march=native)" ON)
+
 option(ENABLE_OPENXR "Build the real VR path via OpenXR (needs a runtime + headset)" OFF)
 
 if(MSVC)
@@ -37,12 +43,20 @@ add_executable(gravity3d
     src/main.cpp
     src/Simulation.cpp
     src/FMM3D.cpp
+    src/Parallel.cpp
     src/FileLoader.cpp
     src/Camera.cpp
     src/Renderer.cpp)
 
 target_link_libraries(gravity3d PRIVATE glad glfw glm::glm)
 target_include_directories(gravity3d PRIVATE src)
+
+# --- threading + optimization ---
+find_package(Threads REQUIRED)
+target_link_libraries(gravity3d PRIVATE Threads::Threads)
+if(GRAVITY3D_NATIVE AND NOT MSVC)
+    target_compile_options(gravity3d PRIVATE $<$<CONFIG:Release>:-O3 -march=native>)
+endif()
 
 # --- optional OpenXR VR backend ---
 if(ENABLE_OPENXR)

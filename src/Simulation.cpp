@@ -1,5 +1,6 @@
 #include "Simulation.h"
 #include "FMM3D.h"
+#include "Parallel.h"
 #include <algorithm>
 
 void Simulation::setInitial(const std::vector<Body>& bodies, bool zeroMomentum) {
@@ -40,21 +41,34 @@ void Simulation::computeAccelerations(const std::vector<Body>& b,
         return;
     }
 
-    // Direct O(n^2) pairwise sum (default / ground truth).
+    // Direct O(n^2) pairwise sum (default / ground truth), packed + multithreaded.
+    // Positions/masses are copied into contiguous arrays first: iterating over the
+    // full Body struct (which carries a name string, colour, etc.) in the inner loop
+    // is very cache-unfriendly. Each output a_i is summed by a single thread, so the
+    // result is bit-identical to the serial version.
     outAcc.assign(n, glm::dvec3(0.0));
+    if (n == 0) return;
     const double eps2 = softening * softening;
-    for (size_t i = 0; i < n; ++i) {
-        glm::dvec3 ai(0.0);
-        for (size_t j = 0; j < n; ++j) {
-            if (i == j) continue;
-            glm::dvec3 d = b[j].pos - b[i].pos;
-            double r2  = d.x * d.x + d.y * d.y + d.z * d.z + eps2;
-            double inv = 1.0 / std::sqrt(r2);
-            double inv3 = inv * inv * inv;
-            ai += (G * b[j].mass * inv3) * d;
+    const double Gc   = G;
+
+    std::vector<glm::dvec3> pos(n);
+    std::vector<double>     mass(n);
+    for (size_t i = 0; i < n; ++i) { pos[i] = b[i].pos; mass[i] = b[i].mass; }
+
+    parallel::forRange(n, [&](size_t lo, size_t hi) {
+        for (size_t i = lo; i < hi; ++i) {
+            const glm::dvec3 pi = pos[i];
+            glm::dvec3 ai(0.0);
+            for (size_t j = 0; j < n; ++j) {
+                glm::dvec3 d = pos[j] - pi;
+                double r2   = d.x * d.x + d.y * d.y + d.z * d.z + eps2;
+                double inv  = 1.0 / std::sqrt(r2);
+                double inv3 = inv * inv * inv;
+                ai += (Gc * mass[j] * inv3) * d;   // j==i gives d=0 -> adds nothing
+            }
+            outAcc[i] = ai;
         }
-        outAcc[i] = ai;
-    }
+    }, /*minChunk=*/64);
 }
 
 void Simulation::integrate(double h) {

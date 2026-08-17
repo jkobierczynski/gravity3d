@@ -19,6 +19,7 @@
 #include "FileLoader.h"
 #include "Camera.h"
 #include "Renderer.h"
+#include "Parallel.h"
 
 #ifdef ENABLE_OPENXR
   #include "vr/OpenXRBackend.h"
@@ -203,6 +204,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     std::printf("Loaded %zu bodies from %s\n", bodies.size(), scenePath.c_str());
+    std::printf("Solver threads: %u (set GRAVITY3D_THREADS to override)\n",
+                parallel::threadCount());
 
     if (!glfwInit()) { std::fprintf(stderr, "glfwInit failed\n"); return 1; }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);

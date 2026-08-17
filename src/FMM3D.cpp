@@ -1,4 +1,5 @@
 #include "FMM3D.h"
+#include "Parallel.h"
 #include <complex>
 #include <cmath>
 #include <cstdint>
@@ -101,16 +102,16 @@ struct Exp {
 
 void P2M(Exp& M, double q, const dv3& d){
     double r,th,ph; sph(d,r,th,ph);
-    std::vector<cd> Y; buildY(th,ph,M.p,Y);
-    std::vector<double> rp; powfill(r,M.p,rp);
+    thread_local std::vector<cd> Y; buildY(th,ph,M.p,Y);
+    thread_local std::vector<double> rp; powfill(r,M.p,rp);
     for (int n = 0; n <= M.p; ++n)
         for (int m = -n; m <= n; ++m)
             M.c[idx(n,m)] += q*rp[n]*std::conj(Y[idx(n,m)]);
 }
 double L2P(const Exp& L, const dv3& D){
     double r,th,ph; sph(D,r,th,ph);
-    std::vector<cd> Y; buildY(th,ph,L.p,Y);
-    std::vector<double> rp; powfill(r,L.p,rp);
+    thread_local std::vector<cd> Y; buildY(th,ph,L.p,Y);
+    thread_local std::vector<double> rp; powfill(r,L.p,rp);
     cd s(0,0);
     for (int n = 0; n <= L.p; ++n)
         for (int m = -n; m <= n; ++m)
@@ -213,73 +214,126 @@ struct Tree {
         std::vector<cd> Y; buildY(th,ph,2*p,Y);
         return m2lDir.emplace(k, std::move(Y)).first->second;
     }
+    // Pre-populate every possible interaction-list offset so the parallel M2L pass
+    // only reads the cache (concurrent unordered_map reads are safe; writes are not).
+    void prepM2L(){
+        for (int dx=-3; dx<=3; ++dx) for (int dy=-3; dy<=3; ++dy) for (int dz=-3; dz<=3; ++dz){
+            int cheb = std::max(std::abs(dx), std::max(std::abs(dy), std::abs(dz)));
+            if (cheb >= 2) m2lTable(dx,dy,dz);      // V-list offsets have cheb 2 or 3
+        }
+    }
+    const std::vector<cd>* m2lFind(int dx,int dy,int dz) const {
+        uint64_t k = ((uint64_t)(dx+16)<<20)|((uint64_t)(dy+16)<<10)|(uint64_t)(dz+16);
+        auto it = m2lDir.find(k); return it==m2lDir.end()? nullptr : &it->second;
+    }
     void solve(const std::vector<dv3>& pos, const std::vector<double>& q, std::vector<dv3>& g){
         int N = 1<<L;
-        for (auto& b : lvl[L]){ b.M.zero(); for (int i : b.bodies) P2M(b.M, q[i], pos[i]-b.center); }
-        std::vector<double> rpC;
-        for (int l = L-1; l >= 0; --l){
-            for (auto& b : lvl[l]) b.M.zero();
-            double csP = S/double(1<<l); double rho = std::sqrt(3.0)*0.25*csP; powfill(rho,p,rpC);
-            for (auto& cb : lvl[l+1]){
-                int px=cb.ix>>1, py=cb.iy>>1, pz=cb.iz>>1; int pi=lvlMap[l][keyOf(px,py,pz)];
-                int s = ((cb.ix&1)?1:0)|((cb.iy&1)?2:0)|((cb.iz&1)?4:0);
-                M2M(cb.M, childDir[s], rpC, lvl[l][pi].M);
-            }
+        prepM2L();   // fill direction cache once, single-threaded
+
+        // ---- upward: P2M at leaves (parallel over leaves) ----
+        {
+            auto& leaves = lvl[L];
+            parallel::forRange(leaves.size(), [&](size_t lo, size_t hi){
+                for (size_t bi = lo; bi < hi; ++bi){
+                    Box& b = leaves[bi]; b.M.zero();
+                    for (int i : b.bodies) P2M(b.M, q[i], pos[i]-b.center);
+                }
+            });
         }
-        for (int l = 0; l <= L; ++l) for (auto& b : lvl[l]) b.L.zero();
-        std::vector<double> rp;
-        for (int l = 2; l <= L; ++l){
-            int Nl = 1<<l; double cs = S/double(Nl);
-            for (auto& B : lvl[l]){
-                int ppx=B.ix>>1, ppy=B.iy>>1, ppz=B.iz>>1;
-                for (int nx=ppx-1;nx<=ppx+1;++nx) for (int ny=ppy-1;ny<=ppy+1;++ny) for (int nz=ppz-1;nz<=ppz+1;++nz){
-                    if (nx<0||ny<0||nz<0||nx>=(Nl>>1)||ny>=(Nl>>1)||nz>=(Nl>>1)) continue;
-                    for (int cx=2*nx;cx<=2*nx+1;++cx) for (int cy=2*ny;cy<=2*ny+1;++cy) for (int cz=2*nz;cz<=2*nz+1;++cz){
-                        if (std::abs(cx-B.ix)<=1 && std::abs(cy-B.iy)<=1 && std::abs(cz-B.iz)<=1) continue;
-                        auto it = lvlMap[l].find(keyOf(cx,cy,cz)); if (it == lvlMap[l].end()) continue;
-                        Box& C = lvl[l][it->second];
-                        int dx=B.ix-cx, dy=B.iy-cy, dz=B.iz-cz;
-                        const std::vector<cd>& Ys = m2lTable(dx,dy,dz);
-                        double rho = std::sqrt(double(dx*dx+dy*dy+dz*dz))*cs; powfill(rho,2*p+1,rp);
-                        M2L(C.M, Ys, rp, B.L);
+        // ---- upward: M2M (parallel over parents; each parent reads its children) ----
+        for (int l = L-1; l >= 0; --l){
+            double csP = S/double(1<<l); double rho = std::sqrt(3.0)*0.25*csP;
+            std::vector<double> rpC; powfill(rho, p, rpC);
+            auto& par = lvl[l]; auto& chMap = lvlMap[l+1]; auto& ch = lvl[l+1];
+            parallel::forRange(par.size(), [&](size_t lo, size_t hi){
+                for (size_t pi = lo; pi < hi; ++pi){
+                    Box& P = par[pi]; P.M.zero();
+                    for (int dx=0; dx<2; ++dx) for (int dy=0; dy<2; ++dy) for (int dz=0; dz<2; ++dz){
+                        auto it = chMap.find(keyOf(2*P.ix+dx, 2*P.iy+dy, 2*P.iz+dz));
+                        if (it == chMap.end()) continue;
+                        Box& C = ch[it->second];
+                        int s = (dx?1:0)|(dy?2:0)|(dz?4:0);
+                        M2M(C.M, childDir[s], rpC, P.M);
                     }
                 }
-            }
+            });
         }
-        for (int l = 2; l <= L-1; ++l){
-            double csP = S/double(1<<l); double rho = std::sqrt(3.0)*0.25*csP; powfill(rho,p,rpC);
-            for (auto& B : lvl[l])
-                for (int cx=2*B.ix;cx<=2*B.ix+1;++cx) for (int cy=2*B.iy;cy<=2*B.iy+1;++cy) for (int cz=2*B.iz;cz<=2*B.iz+1;++cz){
-                    auto it = lvlMap[l+1].find(keyOf(cx,cy,cz)); if (it == lvlMap[l+1].end()) continue;
-                    Box& C = lvl[l+1][it->second];
-                    int s = ((cx&1)?1:0)|((cy&1)?2:0)|((cz&1)?4:0);
-                    L2L(B.L, childDir[s], rpC, C.L);
+        // ---- zero locals ----
+        for (int l = 0; l <= L; ++l) for (auto& b : lvl[l]) b.L.zero();
+
+        // ---- M2L over interaction lists (parallel over target boxes) ----
+        for (int l = 2; l <= L; ++l){
+            int Nl = 1<<l; double cs = S/double(Nl);
+            auto& boxes = lvl[l]; auto& map = lvlMap[l];
+            parallel::forRange(boxes.size(), [&](size_t lo, size_t hi){
+                thread_local std::vector<double> rp;
+                for (size_t bi = lo; bi < hi; ++bi){
+                    Box& B = boxes[bi];
+                    int ppx=B.ix>>1, ppy=B.iy>>1, ppz=B.iz>>1;
+                    for (int nx=ppx-1;nx<=ppx+1;++nx) for (int ny=ppy-1;ny<=ppy+1;++ny) for (int nz=ppz-1;nz<=ppz+1;++nz){
+                        if (nx<0||ny<0||nz<0||nx>=(Nl>>1)||ny>=(Nl>>1)||nz>=(Nl>>1)) continue;
+                        for (int cx=2*nx;cx<=2*nx+1;++cx) for (int cy=2*ny;cy<=2*ny+1;++cy) for (int cz=2*nz;cz<=2*nz+1;++cz){
+                            if (std::abs(cx-B.ix)<=1 && std::abs(cy-B.iy)<=1 && std::abs(cz-B.iz)<=1) continue;
+                            auto it = map.find(keyOf(cx,cy,cz)); if (it == map.end()) continue;
+                            Box& C = boxes[it->second];
+                            int dx=B.ix-cx, dy=B.iy-cy, dz=B.iz-cz;
+                            const std::vector<cd>* Ys = m2lFind(dx,dy,dz); if (!Ys) continue;
+                            double rho = std::sqrt(double(dx*dx+dy*dy+dz*dz))*cs; powfill(rho,2*p+1,rp);
+                            M2L(C.M, *Ys, rp, B.L);
+                        }
+                    }
                 }
+            });
         }
+        // ---- downward: L2L (parallel over parents; each child has one parent) ----
+        for (int l = 2; l <= L-1; ++l){
+            double csP = S/double(1<<l); double rho = std::sqrt(3.0)*0.25*csP;
+            std::vector<double> rpC; powfill(rho, p, rpC);
+            auto& par = lvl[l]; auto& chMap = lvlMap[l+1]; auto& ch = lvl[l+1];
+            parallel::forRange(par.size(), [&](size_t lo, size_t hi){
+                for (size_t pi = lo; pi < hi; ++pi){
+                    Box& B = par[pi];
+                    for (int dx=0; dx<2; ++dx) for (int dy=0; dy<2; ++dy) for (int dz=0; dz<2; ++dz){
+                        auto it = chMap.find(keyOf(2*B.ix+dx, 2*B.iy+dy, 2*B.iz+dz));
+                        if (it == chMap.end()) continue;
+                        Box& C = ch[it->second];
+                        int s = (dx?1:0)|(dy?2:0)|(dz?4:0);
+                        L2L(B.L, childDir[s], rpC, C.L);
+                    }
+                }
+            });
+        }
+        // ---- leaf evaluation: far-field (FD of local) + near-field (softened direct) ----
         g.assign(pos.size(), dv3(0.0));
         double h = cell*1e-2;
-        for (auto& B : lvl[L]){
-            for (int i : B.bodies){
-                dv3 d = pos[i]-B.center;
-                dv3 gf(
-                    (L2P(B.L,d+dv3(h,0,0))-L2P(B.L,d-dv3(h,0,0)))/(2*h),
-                    (L2P(B.L,d+dv3(0,h,0))-L2P(B.L,d-dv3(0,h,0)))/(2*h),
-                    (L2P(B.L,d+dv3(0,0,h))-L2P(B.L,d-dv3(0,0,h)))/(2*h));
-                g[i] += gf;
-            }
-            for (int nx=B.ix-1;nx<=B.ix+1;++nx) for (int ny=B.iy-1;ny<=B.iy+1;++ny) for (int nz=B.iz-1;nz<=B.iz+1;++nz){
-                if (nx<0||ny<0||nz<0||nx>=N||ny>=N||nz>=N) continue;
-                auto it = lvlMap[L].find(keyOf(nx,ny,nz)); if (it == lvlMap[L].end()) continue;
-                Box& C = lvl[L][it->second];
-                for (int i : B.bodies) for (int j : C.bodies){ if (i==j) continue;
-                    dv3 dd = pos[j]-pos[i];
-                    double r2 = dd.x*dd.x+dd.y*dd.y+dd.z*dd.z+eps2;
-                    double inv = 1.0/std::sqrt(r2);
-                    g[i] += (q[j]*inv*inv*inv)*dd;
+        {
+            auto& leaves = lvl[L]; auto& map = lvlMap[L];
+            parallel::forRange(leaves.size(), [&](size_t lo, size_t hi){
+                for (size_t bi = lo; bi < hi; ++bi){
+                    Box& B = leaves[bi];
+                    for (int i : B.bodies){
+                        dv3 d = pos[i]-B.center;
+                        dv3 gf(
+                            (L2P(B.L,d+dv3(h,0,0))-L2P(B.L,d-dv3(h,0,0)))/(2*h),
+                            (L2P(B.L,d+dv3(0,h,0))-L2P(B.L,d-dv3(0,h,0)))/(2*h),
+                            (L2P(B.L,d+dv3(0,0,h))-L2P(B.L,d-dv3(0,0,h)))/(2*h));
+                        g[i] += gf;
+                    }
+                    for (int nx=B.ix-1;nx<=B.ix+1;++nx) for (int ny=B.iy-1;ny<=B.iy+1;++ny) for (int nz=B.iz-1;nz<=B.iz+1;++nz){
+                        if (nx<0||ny<0||nz<0||nx>=N||ny>=N||nz>=N) continue;
+                        auto it = map.find(keyOf(nx,ny,nz)); if (it == map.end()) continue;
+                        Box& C = leaves[it->second];
+                        for (int i : B.bodies) for (int j : C.bodies){ if (i==j) continue;
+                            dv3 dd = pos[j]-pos[i];
+                            double r2 = dd.x*dd.x+dd.y*dd.y+dd.z*dd.z+eps2;
+                            double inv = 1.0/std::sqrt(r2);
+                            g[i] += (q[j]*inv*inv*inv)*dd;
+                        }
+                    }
+                    for (int i : B.bodies) g[i] *= G;
                 }
-            }
+            });
         }
-        for (auto& gi : g) gi *= G;
     }
 };
 
