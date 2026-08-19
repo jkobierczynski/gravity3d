@@ -23,6 +23,31 @@ the real solver and conserves energy to about 1e-6 or better (the merger include
 | `06_colliding_galaxies.csv` | 802 | Two rotating disk galaxies (gold + blue) on a collision course. Watch tidal tails and bridges form as they merge. |
 | `08_galaxy_disk_3000.csv` | 3001 | A 3000-star galaxy. Heavy for the direct O(N²) solver — press **G** to switch to the O(N) FMM. |
 
+## Few-body, chaotic & semi-chaotic
+
+Small systems where you can follow every body. Turn on **trails** (`T`) — the orbits and
+tidal tails are the whole point. These use the CPU direct solver (they're tiny); chaotic
+ones are exquisitely sensitive to initial conditions, but each conserves energy, so the
+integration is sound even when the motion looks wild.
+
+| File | N | Behaviour |
+|---|---|---|
+| `14_pythagorean_3body.csv` | 3 | **Chaotic.** Burrau's problem — masses 3-4-5 released from rest. Repeated close passes, then a binary forms and ejects the third body. |
+| `15_figure_eight.csv` | 3 | **Choreography.** Three equal masses chase each other around one figure-eight curve. Stable but delicate — softening slowly makes it precess. |
+| `16_lagrange_triangle.csv` | 3 | **Semi-chaotic.** An equilateral triangle rotating rigidly; equal masses make it unstable, so it holds, then tips into chaos. |
+| `17_hierarchical_triple.csv` | 3 | **Semi-chaotic (Kozai-Lidov).** A tight binary plus a distant, steeply-inclined companion that pumps the pair's eccentricity up and down. |
+| `18_binary_binary_scatter.csv` | 4 | **Chaotic scattering.** Two binaries collide off-centre — partner-swaps, a hardened binary, and usually one star flung away. |
+| `19_cold_collapse_12.csv` | 12 | **Chaotic.** Twelve masses fall together, overshoot, and violently relax; transient binaries and a couple of ejections. |
+| `23_hard_binary_in_cluster.csv` | 62 | **Semi-chaotic (Heggie).** A tight massive binary at a cluster's heart scatters passing stars, hardening itself and heating the cluster. |
+
+## Cluster variations
+
+| File | N | What it is |
+|---|---|---|
+| `20_double_cluster.csv` | 600 | Two Plummer clusters on a bound orbit about each other — they swing past, raise tidal tails, and merge. |
+| `21_cluster_with_blackhole.csv` | 401 | A 400-star cluster around a dominant central mass (a stand-in black hole); a fast, dense nucleus forms. |
+| `22_mass_segregation.csv` | 325 | Many light stars plus a few heavy ones (orange) that sink toward the centre as light stars diffuse outward. |
+
 ## Large systems (for testing the FMM)
 
 These are sized to exercise the Fast Multipole Method. **Turn the FMM on with `G`** —

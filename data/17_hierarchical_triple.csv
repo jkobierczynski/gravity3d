@@ -1,0 +1,13 @@
+# A tight inner binary with a distant companion on a steeply inclined orbit. Above the
+# critical angle the third body pumps the inner pair's eccentricity up and down
+# (Kozai-Lidov) — quasi-periodic, semi-chaotic.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.02
+@dt=0.003
+@timescale=1.5
+@zeroMomentum=1
+in1,1,-2.667,-0.5,0,0.707107,-0.0862666,-0.184999,1,0.8,0.5,0.28
+in2,1,-2.667,0.5,0,-0.707107,-0.0862666,-0.184999,1,0.6,0.4,0.28
+outer,1,5.333,0,0,0,0.172533,0.369999,0.55,0.8,1,0.3

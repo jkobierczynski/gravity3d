@@ -1,0 +1,13 @@
+# The Chenciner-Montgomery figure-eight: three equal masses forever tracing one
+# figure-eight curve. A stable choreography, but exquisitely sensitive — softening slowly
+# nudges it, so watch it precess.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.006
+@dt=0.0008
+@timescale=1.0
+@zeroMomentum=1
+one,1,0.970004,-0.243088,0,0.466204,0.432366,0,1,0.75,0.45,0.16
+two,1,-0.970004,0.243088,0,0.466204,0.432366,0,0.55,0.85,1,0.16
+three,1,0,0,0,-0.932407,-0.864731,0,0.7,1,0.65,0.16

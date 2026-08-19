@@ -1,0 +1,13 @@
+# Two binaries fall toward each other with an offset. The four-body encounter is chaotic:
+# expect partner-swaps, a hardened binary, and often one star flung away.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.05
+@dt=0.0015
+@timescale=1.5
+@zeroMomentum=1
+A1,1,-10.8637,-1.92237,0,2.07844,0.329119,0,1,0.8,0.5,0.3
+A2,1,-11.1363,-1.27763,0,0.521561,-0.329119,0,1,0.7,0.45,0.3
+B1,1,11.3119,1.44124,0,-1.68336,-0.753208,0,0.55,0.8,1,0.3
+B2,1,10.6881,1.75876,0,-0.916641,0.753208,0,0.5,0.7,1,0.3
