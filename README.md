@@ -228,7 +228,14 @@ acceleration is an independent sum — so the heavy loops run across all CPU cor
   `GRAVITY3D_THREADS`, and the active count prints at startup.
 - **Seeing where the time goes.** Set `GRAVITY3D_FMM_PROFILE=1` to print a per-phase
   millisecond breakdown (build / P2M / M2M / M2L / L2L / eval) every 30 solves — handy
-  for confirming the split across your cores.
+  for confirming the split across your cores. On a many-core machine the near-field
+  evaluation (`eval`) usually dominates while the M2L translations become nearly free.
+- **Tuning the tree for your machine.** `GRAVITY3D_FMM_LEAF` sets the leaf capacity
+  `Ncrit` (max points per octree leaf). Smaller leaves shift work from the near-field
+  (`eval`) onto the translations (`M2L`); larger leaves do the reverse. The default is
+  auto-set from the order; with many cores, watch the profiler and pick the value where
+  `M2L` and `eval` roughly balance. Accuracy is unaffected — it's the same result at any
+  leaf size.
 - **If not all cores look busy.** Two normal reasons, neither a bug: (1) for small or
   fast scenes the FMM finishes a frame in well under the 60 fps budget, so the app idles
   waiting for v-sync — use a large scene (30k–100k) or raise the speed (`+`) to keep the
@@ -257,8 +264,13 @@ switchable live with `G`:
 - **Direct** (default) — the exact O(N²) pairwise sum. Simple, exact, and the fastest
   option for the small N of a typical interactive scene. It's also the ground truth.
 - **FMM** — a 3D Laplace **Fast Multipole Method**: complex solid-harmonic expansions
-  (P2M → M2M → M2L → L2L → L2P) over a uniform octree, with a direct near-field. This
-  is the O(N) algorithm that makes very large N tractable.
+  (P2M → M2M → M2L → L2L → L2P) over an **adaptive octree**, with a direct near-field.
+  The tree subdivides only where mass is dense (≤ a leaf-capacity `Ncrit` points per
+  leaf), and a **dual tree traversal** decides, for each pair of cells, whether they are
+  far enough apart to translate (M2L) or must be summed directly (P2P). Bounding leaf
+  occupancy keeps the near-field ~O(N) no matter how concentrated the system becomes —
+  so a collapsing cloud or a dense core stays fast, where a fixed uniform grid would
+  bog down.
 
 **Accuracy.** The FMM is an approximation whose error is controlled by the expansion
 order *p* (`;` / `'` to change it). Measured relative L2 error of the accelerations
@@ -280,18 +292,20 @@ it on **Direct** for ordinary scenes, switch to **FMM** (`G`) when you want to p
 body count into the thousands and beyond. The window title shows the active solver.
 
 **Honest caveats.**
-- The octree is **uniform**, which is ideal for roughly space-filling clouds. Highly
-  clustered mass would benefit from an adaptive tree (a natural extension) — results are
-  still correct with a uniform tree, just less efficient.
+- The octree is **adaptive**: it refines only where mass is dense, so leaf occupancy is
+  bounded everywhere and the near-field stays ~O(N) even for a dense core or a
+  collapsing cloud. Interactions are found by a dual tree traversal (well-separated →
+  M2L, near leaves → direct), which handles cells of differing sizes automatically.
 - Softening is applied in the **near-field only** (the exact 1/r kernel is used in the
   far field). This is physically consistent because far-field pairs are well separated,
   so softening there would be negligible anyway; close encounters — where softening
   matters — always fall in the near-field.
 - Far-field forces are the gradient of the local expansion, taken by central finite
   differences of a smooth field (the near-field uses the exact analytic softened force).
-- It's a single-threaded scalar implementation. Production FMMs add rotation-based or
-  FFT M2L, threading and SIMD; those are the obvious next speedups, not correctness
-  fixes.
+- It's a single-threaded-scalar operator core run in parallel across cells/bodies.
+  Production FMMs add rotation-based or FFT M2L (dropping each translation from O(p⁴) to
+  O(p³)), which is the next constant-factor win; that's optimization, not a correctness
+  fix.
 
 ### Projection standards (the "American projection")
 

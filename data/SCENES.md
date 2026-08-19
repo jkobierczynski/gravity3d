@@ -37,17 +37,16 @@ the direct O(N²) solver is impractical at these counts. Give it multiple cores
 | `12_uniform_cloud_30k.csv` | 30 000 | A larger rotating cloud — a comfortable FMM showcase. |
 | `13_uniform_cloud_100k.csv` | 100 000 | The stress test. Direct is ~seconds/step; the FMM is where this becomes feasible. |
 
-**What to expect.** The FMM here uses a *uniform* octree, so it's happiest on
-space-filling 3D distributions:
+**What to expect.** The FMM uses an **adaptive** octree (it refines only where mass is
+dense), so it stays efficient across very different distributions:
 
 - The **uniform clouds** (`09`, `12`, `13`) scale essentially linearly — the cost per
-  body is roughly constant as N grows. These are the clean large-N wins; `13` at 100k
-  is many times faster than the direct sum even on one core, and near-interactive with
-  a few cores.
-- The **Plummer cluster** (`10`) is spherical but has a dense core, and the **thin disk**
-  (`11`) is nearly 2D — both pack many bodies into a few octree cells, so the near-field
-  work climbs. They run correctly (energy is conserved) but are the FMM's harder cases
-  and cost more per step. `10` is the heaviest of the set.
+  body is roughly constant as N grows. `13` at 100k is many times faster than the direct
+  sum even on one core, and near-interactive with a few cores.
+- The **Plummer cluster** (`10`) and the **thin disk** (`11`) are concentrated, so a
+  fixed uniform grid used to bog down on their dense cores. The adaptive tree bounds the
+  leaf occupancy there, keeping the near-field in check — the Plummer solve is roughly
+  2× faster than it was on a uniform tree, and stays balanced across cores.
 
 All were checked: FMM accelerations match direct summation to ~1e-3 (order p=4), and
 each integrates without blowing up (energy conserved to ~1e-5–1e-6 over the test).
