@@ -20,6 +20,7 @@
 #include "Camera.h"
 #include "Renderer.h"
 #include "Parallel.h"
+#include "GpuNbody.h"
 
 #ifdef ENABLE_OPENXR
   #include "vr/OpenXRBackend.h"
@@ -87,6 +88,7 @@ static void printHelp() {
     "  Speed:        + / -   (faster / slower)\n"
     "  Pause:        Space        Restart: R\n"
     "  Solver:       G  toggle Direct <-> FMM     ; ' lower/raise FMM order\n"
+    "                U  toggle GPU solver (OpenGL compute, if available)\n"
     "  Stereo tune:  [ ] eye separation     , . convergence distance\n"
     "  VR placement: scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset\n"
     "  Camera:       drag = orbit    scroll = zoom\n"
@@ -133,6 +135,10 @@ static void keyCallback(GLFWwindow* w, int key, int, int action, int) {
         case GLFW_KEY_R:     sim.reset(); clearTrails(); break;
         // Gravity solver: Direct (default) <-> FMM, and FMM order.
         case GLFW_KEY_G:          sim.useFMM   = !sim.useFMM;                     break;
+        case GLFW_KEY_U:
+            if (gpu::available()) sim.useGPU = !sim.useGPU;
+            else std::printf("GPU solver unavailable on this system.\n");
+            break;
         case GLFW_KEY_SEMICOLON:  sim.fmmOrder = std::max(1,  sim.fmmOrder - 1);  break;
         case GLFW_KEY_APOSTROPHE: sim.fmmOrder = std::min(12, sim.fmmOrder + 1);  break;
         case GLFW_KEY_LEFT_BRACKET:  cam.eyeSep = std::max(0.01, cam.eyeSep * 0.9); break;
@@ -208,7 +214,7 @@ int main(int argc, char** argv) {
                 parallel::threadCount());
 
     if (!glfwInit()) { std::fprintf(stderr, "glfwInit failed\n"); return 1; }
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 #ifdef __APPLE__
@@ -225,6 +231,12 @@ int main(int argc, char** argv) {
 
     Renderer renderer;
     if (!renderer.init()) { std::fprintf(stderr, "renderer init failed\n"); return 1; }
+
+    // Optional GPU (compute-shader) direct solver — vendor-independent, needs GL 4.3.
+    if (gpu::init())
+        std::printf("GPU solver: available on \"%s\" (press U to toggle)\n", gpu::deviceInfo());
+    else
+        std::printf("GPU solver: unavailable (needs an OpenGL 4.3 context)\n");
 
     Simulation sim;
     sim.G = cfg.G; sim.softening = cfg.softening; sim.dt = cfg.dt; sim.timeScale = cfg.timeScale;
@@ -494,7 +506,8 @@ int main(int argc, char** argv) {
             char title[320];
             char proj[64];
             char solver[32];
-            if (sim.useFMM) std::snprintf(solver, sizeof(solver), "FMM p=%d", sim.fmmOrder);
+            if      (sim.useGPU && gpu::available()) std::snprintf(solver, sizeof(solver), "GPU");
+            else if (sim.useFMM) std::snprintf(solver, sizeof(solver), "FMM p=%d", sim.fmmOrder);
             else            std::snprintf(solver, sizeof(solver), "direct");
             if (state.mode == RenderMode::Multiview)
                 std::snprintf(proj, sizeof(proj), "%s",
@@ -515,6 +528,7 @@ int main(int argc, char** argv) {
 #ifdef ENABLE_OPENXR
     xr.shutdown();
 #endif
+    gpu::shutdown();
     renderer.shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -1,5 +1,6 @@
 #include "Simulation.h"
 #include "FMM3D.h"
+#include "GpuNbody.h"
 #include "Parallel.h"
 #include <algorithm>
 
@@ -30,6 +31,15 @@ void Simulation::reset() {
 void Simulation::computeAccelerations(const std::vector<Body>& b,
                                       std::vector<glm::dvec3>& outAcc) const {
     const size_t n = b.size();
+
+    if (useGPU && n > 0 && gpu::available()) {
+        // GPU compute-shader direct solver (fp32). Extract packed pos/mass and hand off.
+        std::vector<glm::dvec3> pos(n);
+        std::vector<double>     mass(n);
+        for (size_t i = 0; i < n; ++i) { pos[i] = b[i].pos; mass[i] = b[i].mass; }
+        gpu::accelerations(pos, mass, G, softening, outAcc);
+        return;
+    }
 
     if (useFMM && n > 0) {
         // Fast Multipole Method path (O(N)). Far-field uses the exact kernel;

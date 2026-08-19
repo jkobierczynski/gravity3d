@@ -21,7 +21,7 @@ objects from a file and shows the motion with selectable projections, stereoscop
 | Straight & cross-eye stereo | `F3` (parallel) · `F4` (cross-eye) |
 | VR headset | `F5` side-by-side (phone/Cardboard) · `F6` OpenXR (real PC-VR headset, via SteamVR) — see **Running in VR (OpenXR)** |
 | Simulation speed | `+` / `-` |
-| Gravity solver | `G` toggles Direct O(N²) ↔ **Fast Multipole Method** O(N); `;`/`'` set FMM order — see **Gravity solver: direct vs FMM** |
+| Gravity solver | `G` toggles Direct O(N²) ↔ **Fast Multipole Method** O(N); `;`/`'` set FMM order — see **Gravity solver: direct vs FMM** · `U` runs the direct sum on the **GPU** (OpenGL compute shader) |
 | Pause / restart | `Space` / `R` |
 | Trail stays vs. moves with object | `T` cycles Off → Follow (moves along) → Stay (persists) |
 
@@ -77,6 +77,7 @@ Trails        T    cycle Off / Follow / Stay
 Speed         + / -
 Pause         Space          Restart   R
 Solver        G    toggle Direct <-> FMM        ; '  lower / raise FMM order
+              U    toggle GPU solver (OpenGL compute shader, if available)
 Stereo tune   [ ] eye separation      , . convergence distance
 VR placement  scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset
 Camera        drag = orbit    scroll = zoom   (zoom also scales the multiview)
@@ -255,6 +256,30 @@ typical multi-core desktop, several times faster again. The FMM's crossover with
 (around N≈5000 single-threaded) shifts with core count, and both solvers move a much
 larger N at interactive rates than before. For the 3000-star scene, keep an eye on the
 title-bar solver readout and try `G` to compare.
+
+### GPU solver (OpenGL compute shader)
+
+Press **`U`** to run the direct O(N²) sum on the GPU instead of the CPU. It's a vendor-
+independent OpenGL 4.3 **compute shader** (works on NVIDIA, AMD, and Intel), using the
+classic shared-memory tiled N-body kernel — each body streams all others through
+workgroup-shared memory. The GPU is enormously parallel, so the pairwise sum that costs
+the CPU dearly at large N can run far faster on a discrete card.
+
+Details worth knowing:
+- **Precision.** The GPU path is **fp32**; the CPU direct solver stays the
+  double-precision ground truth. Measured error of the kernel vs the double sum is
+  ~1e-6 relative (max ~1e-5), invisible for a visualiser. The title shows `GPU` when
+  it's active.
+- **When it helps.** It offloads the *direct* solver, so it shines at large N where the
+  O(N²) work dominates. Note the sim is normally **v-sync-capped at 60 fps** — if a
+  frame already finishes early, a faster solver just idles more. To feel the GPU, use a
+  large scene or raise the speed (`+`) so there's real work per frame.
+- **Availability.** Needs a GL 4.3 context (the app now requests one). A startup line
+  reports the GPU and whether the solver is available; if the driver is older, `U` is a
+  no-op and everything falls back to the CPU.
+- **Scope.** This offloads the direct sum, not the FMM's tree passes (irregular, a much
+  larger GPU project). For very large N the CPU FMM (`G`) is still the asymptotically
+  faster algorithm; the GPU direct path is brute force made cheap by hardware.
 
 ### Gravity solver: direct vs FMM
 

@@ -15,6 +15,7 @@ public:
     // the FMM path is an O(N) approximation that pays off at large N.
     bool   useFMM     = false;  // false = direct pairwise, true = Fast Multipole Method
     int    fmmOrder   = 4;      // FMM expansion order p (accuracy vs cost)
+    bool   useGPU     = false;  // GPU compute-shader direct solver (takes priority when available)
 
     // Store the initial state (optionally remove any net drift of the whole system).
     void setInitial(const std::vector<Body>& bodies, bool zeroMomentum);
