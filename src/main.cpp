@@ -38,7 +38,7 @@ struct AppState {
     Simulation*   sim       = nullptr;
     std::vector<std::vector<glm::vec3>>* trails = nullptr;
     RenderMode    mode      = RenderMode::Mono;
-    TrailMode     trailMode = TrailMode::Follow;
+    TrailMode     trailMode = TrailMode::Off;
     bool          thirdAngle = true;   // multiview layout: true = American (3rd), false = European (1st)
     bool          dragging  = false;
     double        lastX = 0, lastY = 0;
@@ -246,6 +246,7 @@ int main(int argc, char** argv) {
 
     Simulation sim;
     sim.G = cfg.G; sim.softening = cfg.softening; sim.dt = cfg.dt; sim.timeScale = cfg.timeScale;
+    sim.useGPU = gpu::available();   // GPU direct solver on by default when available
     sim.setInitial(bodies, cfg.zeroMomentum);
 
     // Fit the camera to the scene extent.

@@ -273,6 +273,14 @@ Rough guide on a fast GPU: **GPU direct** is exact and unbeatable to ~100k–300
 **GPU Barnes-Hut** pushes past that with a small tunable approximation; **CPU FMM** is the
 accurate large-N option on many cores.
 
+### Defaults & large scenes
+
+At startup **trails are off** and the **GPU direct solver is on** whenever a GL 4.3 context
+is available (press `T` for trails, `U`/`B`/`G` to switch solver). For very large systems
+(300k–3M bodies — spiral galaxies, mergers, cosmic-web structure formation, galaxy clusters)
+see `data/LARGE_SCENES.md` and the `gen_large_scenes.py` generator; press `U` (GPU direct) up
+to a few hundred k, or `B` (GPU Barnes-Hut) beyond that.
+
 ### GPU solver (OpenGL compute shader)
 
 Press **`U`** to run the direct O(N²) sum on the GPU instead of the CPU. It's a vendor-
