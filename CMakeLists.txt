@@ -45,6 +45,8 @@ add_executable(gravity3d
     src/FMM3D.cpp
     src/Parallel.cpp
     src/GpuNbody.cpp
+    src/BarnesHut.cpp
+    src/GpuBarnesHut.cpp
     src/FileLoader.cpp
     src/Camera.cpp
     src/Renderer.cpp)

@@ -16,6 +16,8 @@ public:
     bool   useFMM     = false;  // false = direct pairwise, true = Fast Multipole Method
     int    fmmOrder   = 4;      // FMM expansion order p (accuracy vs cost)
     bool   useGPU     = false;  // GPU compute-shader direct solver (takes priority when available)
+    bool   useGPUBH   = false;  // GPU Barnes-Hut treecode (highest priority when enabled)
+    double bhTheta    = 0.5;    // Barnes-Hut opening angle
 
     // Store the initial state (optionally remove any net drift of the whole system).
     void setInitial(const std::vector<Body>& bodies, bool zeroMomentum);

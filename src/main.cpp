@@ -21,6 +21,7 @@
 #include "Renderer.h"
 #include "Parallel.h"
 #include "GpuNbody.h"
+#include "GpuBarnesHut.h"
 
 #ifdef ENABLE_OPENXR
   #include "vr/OpenXRBackend.h"
@@ -88,7 +89,7 @@ static void printHelp() {
     "  Speed:        + / -   (faster / slower)\n"
     "  Pause:        Space        Restart: R\n"
     "  Solver:       G  toggle Direct <-> FMM     ; ' lower/raise FMM order\n"
-    "                U  toggle GPU solver (OpenGL compute, if available)\n"
+    "                U  GPU direct solver     B  GPU Barnes-Hut treecode (OpenGL compute)\n"
     "  Stereo tune:  [ ] eye separation     , . convergence distance\n"
     "  VR placement: scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset\n"
     "  Camera:       drag = orbit    scroll = zoom\n"
@@ -138,6 +139,9 @@ static void keyCallback(GLFWwindow* w, int key, int, int action, int) {
         case GLFW_KEY_U:
             if (gpu::available()) sim.useGPU = !sim.useGPU;
             else std::printf("GPU solver unavailable on this system.\n");
+            break;
+        case GLFW_KEY_B:
+            sim.useGPUBH = !sim.useGPUBH;   // CPU treecode fallback if no GPU
             break;
         case GLFW_KEY_SEMICOLON:  sim.fmmOrder = std::max(1,  sim.fmmOrder - 1);  break;
         case GLFW_KEY_APOSTROPHE: sim.fmmOrder = std::min(12, sim.fmmOrder + 1);  break;
@@ -237,6 +241,8 @@ int main(int argc, char** argv) {
         std::printf("GPU solver: available on \"%s\" (press U to toggle)\n", gpu::deviceInfo());
     else
         std::printf("GPU solver: unavailable (needs an OpenGL 4.3 context)\n");
+    if (gpubh::init())
+        std::printf("GPU Barnes-Hut: available (press B to toggle)\n");
 
     Simulation sim;
     sim.G = cfg.G; sim.softening = cfg.softening; sim.dt = cfg.dt; sim.timeScale = cfg.timeScale;
@@ -506,7 +512,9 @@ int main(int argc, char** argv) {
             char title[320];
             char proj[64];
             char solver[32];
-            if      (sim.useGPU && gpu::available()) std::snprintf(solver, sizeof(solver), "GPU");
+            if      (sim.useGPUBH && gpubh::available()) std::snprintf(solver, sizeof(solver), "GPU-BH");
+            else if (sim.useGPUBH) std::snprintf(solver, sizeof(solver), "BH");
+            else if (sim.useGPU && gpu::available()) std::snprintf(solver, sizeof(solver), "GPU");
             else if (sim.useFMM) std::snprintf(solver, sizeof(solver), "FMM p=%d", sim.fmmOrder);
             else            std::snprintf(solver, sizeof(solver), "direct");
             if (state.mode == RenderMode::Multiview)
@@ -529,6 +537,7 @@ int main(int argc, char** argv) {
     xr.shutdown();
 #endif
     gpu::shutdown();
+    gpubh::shutdown();
     renderer.shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();

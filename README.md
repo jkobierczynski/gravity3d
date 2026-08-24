@@ -6,10 +6,6 @@ objects from a file and shows the motion with selectable projections, stereoscop
 
 ---
 
-## Screenshot
-
-![Alt text](gravity3d.jpg)
-
 ## Features at a glance
 
 | Requirement | How it's covered |
@@ -21,7 +17,7 @@ objects from a file and shows the motion with selectable projections, stereoscop
 | Straight & cross-eye stereo | `F3` (parallel) · `F4` (cross-eye) |
 | VR headset | `F5` side-by-side (phone/Cardboard) · `F6` OpenXR (real PC-VR headset, via SteamVR) — see **Running in VR (OpenXR)** |
 | Simulation speed | `+` / `-` |
-| Gravity solver | `G` toggles Direct O(N²) ↔ **Fast Multipole Method** O(N); `;`/`'` set FMM order — see **Gravity solver: direct vs FMM** · `U` runs the direct sum on the **GPU** (OpenGL compute shader) |
+| Gravity solver | `G` toggles Direct O(N²) ↔ **Fast Multipole Method** O(N); `;`/`'` set FMM order — see **Gravity solver: direct vs FMM** · `U` GPU direct sum, `B` GPU **Barnes-Hut** treecode (OpenGL compute) |
 | Pause / restart | `Space` / `R` |
 | Trail stays vs. moves with object | `T` cycles Off → Follow (moves along) → Stay (persists) |
 
@@ -78,6 +74,7 @@ Speed         + / -
 Pause         Space          Restart   R
 Solver        G    toggle Direct <-> FMM        ; '  lower / raise FMM order
               U    toggle GPU solver (OpenGL compute shader, if available)
+              B    toggle GPU Barnes-Hut treecode (O(N log N), OpenGL compute)
 Stereo tune   [ ] eye separation      , . convergence distance
 VR placement  scroll = scale   arrows = move (up/down/near/far)   drag = rotate   0 = reset
 Camera        drag = orbit    scroll = zoom   (zoom also scales the multiview)
@@ -256,6 +253,21 @@ typical multi-core desktop, several times faster again. The FMM's crossover with
 (around N≈5000 single-threaded) shifts with core count, and both solvers move a much
 larger N at interactive rates than before. For the 3000-star scene, keep an eye on the
 title-bar solver readout and try `G` to compare.
+
+### GPU Barnes-Hut treecode (`B`)
+
+A GPU treecode for approximate **O(N log N)** gravity — the GPU-friendly alternative to a
+full GPU-FMM. The CPU builds and flattens an octree each step (cheap, O(N)); the GPU does
+the expensive part, one invocation per body walking the flattened, **stackless** node array
+(skip pointer per cell) and using a cell as a single point mass when `size/distance < theta`
+(default 0.5), else opening it. `bh::accelerations` runs the same flattened traversal on the
+CPU, so it's both the fallback (if the GPU path is unavailable) and the reference the GPU
+result is checked against; accuracy is set by theta (~1e-2 at 0.75, ~1e-3 at 0.5). fp32 on
+the GPU. `B` toggles it; the window title shows `GPU-BH` (or `BH` on the CPU fallback).
+
+Rough guide on a fast GPU: **GPU direct** is exact and unbeatable to ~100k–300k bodies;
+**GPU Barnes-Hut** pushes past that with a small tunable approximation; **CPU FMM** is the
+accurate large-N option on many cores.
 
 ### GPU solver (OpenGL compute shader)
 

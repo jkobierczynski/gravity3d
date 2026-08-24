@@ -1,6 +1,8 @@
 #include "Simulation.h"
 #include "FMM3D.h"
 #include "GpuNbody.h"
+#include "GpuBarnesHut.h"
+#include "BarnesHut.h"
 #include "Parallel.h"
 #include <algorithm>
 
@@ -31,6 +33,16 @@ void Simulation::reset() {
 void Simulation::computeAccelerations(const std::vector<Body>& b,
                                       std::vector<glm::dvec3>& outAcc) const {
     const size_t n = b.size();
+
+    if (useGPUBH && n > 0) {
+        // GPU Barnes-Hut treecode (fp32), CPU fallback if the GPU path is unavailable.
+        std::vector<glm::dvec3> pos(n);
+        std::vector<double>     mass(n);
+        for (size_t i = 0; i < n; ++i) { pos[i] = b[i].pos; mass[i] = b[i].mass; }
+        if (gpubh::available()) gpubh::accelerations(pos, mass, G, softening, bhTheta, outAcc);
+        else                    bh::accelerations(pos, mass, G, softening, bhTheta, outAcc);
+        return;
+    }
 
     if (useGPU && n > 0 && gpu::available()) {
         // GPU compute-shader direct solver (fp32). Extract packed pos/mass and hand off.
