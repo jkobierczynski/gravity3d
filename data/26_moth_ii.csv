@@ -1,0 +1,16 @@
+# Moth II — a periodic three-body orbit from the "Moth" family (island) of
+# the Three Body Orbits atlas: https://www.threebodyorbits.com/#atlas
+# Three equal masses, zero total momentum and angular momentum, period T=28.6703.
+# A second moth topology, the wings wound a little differently and the period nearly doubled.
+# Exact Newtonian orbit, so it runs with a tiny @softening and a small @dt; crank speed
+# with + once it's going, and press T for trails to see the figure drawn out.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.0001
+@dt=0.0002
+@timescale=0.6
+@zeroMomentum=1
+one,1,-1,0,0,0.439170,0.452970,0,1,0.75,0.45,0.14
+two,1,1,0,0,0.439170,0.452970,0,0.55,0.85,1,0.14
+three,1,0,0,0,-0.878340,-0.905940,0,0.7,1,0.65,0.14

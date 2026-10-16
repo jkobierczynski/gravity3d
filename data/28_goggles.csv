@@ -1,0 +1,16 @@
+# Goggles — a periodic three-body orbit from the "Goggles" family (island) of
+# the Three Body Orbits atlas: https://www.threebodyorbits.com/#atlas
+# Three equal masses, zero total momentum and angular momentum, period T=10.4668.
+# Two round eye-loops joined by a bridge through the centre — the goggles.
+# Exact Newtonian orbit, so it runs with a tiny @softening and a small @dt; crank speed
+# with + once it's going, and press T for trails to see the figure drawn out.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.0001
+@dt=0.0001
+@timescale=0.6
+@zeroMomentum=1
+one,1,-1,0,0,0.083300,0.127890,0,1,0.75,0.45,0.14
+two,1,1,0,0,0.083300,0.127890,0,0.55,0.85,1,0.14
+three,1,0,0,0,-0.166600,-0.255780,0,0.7,1,0.65,0.14

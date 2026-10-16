@@ -23,10 +23,6 @@ objects from a file and shows the motion with selectable projections, stereoscop
 
 ---
 
-## Screenshot
-
-![Alt text](gravity3d.jpg)
-
 ## Building on Windows
 
 Prerequisites: **Visual Studio 2019/2022** (Desktop C++ workload) and **CMake ≥ 3.16**

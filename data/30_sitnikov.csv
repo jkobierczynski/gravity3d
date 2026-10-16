@@ -1,0 +1,22 @@
+# Sitnikov system — a light body oscillating along the z-axis like a pendulum, through the
+# plane of two much heavier bodies that circle each other in the xy-plane. By symmetry the
+# axial body feels a pure -z restoring force (independent of the binary's phase), so it swings
+# between two extremes above and below the plane while the binary turns beneath it.
+#
+# This is the classic Sitnikov problem (a special case of the restricted three-body problem).
+# The CIRCULAR version here is regular/integrable — a clean periodic pendulum; give the binary
+# an eccentric orbit instead and it becomes the famous chaotic Sitnikov problem.
+#
+# M_heavy=10 (x2), m_light=0.3, binary radius 1 (separation 2); released with the pendulum at
+# its top extreme (z=1.3, at rest). Verified: binary stays circular to ~1%, the light body
+# stays exactly on the axis, energy conserved to ~1e-9.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.02
+@dt=0.0005
+@timescale=0.6
+@zeroMomentum=1
+heavy_a,10,1,0,0,0,1.62,0,1,0.82,0.45,0.42
+heavy_b,10,-1,0,0,0,-1.62,0,1,0.72,0.5,0.42
+pendulum,0.3,0,0,1.3,0,0,0,0.55,0.9,1,0.16

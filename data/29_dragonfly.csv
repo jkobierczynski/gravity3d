@@ -1,0 +1,16 @@
+# Dragonfly — a periodic three-body orbit from the "Dragonfly" family (island) of
+# the Three Body Orbits atlas: https://www.threebodyorbits.com/#atlas
+# Three equal masses, zero total momentum and angular momentum, period T=21.271.
+# Slim, elongated wings that stretch far from the centre of mass; the most delicate of the set.
+# Exact Newtonian orbit, so it runs with a tiny @softening and a small @dt; crank speed
+# with + once it's going, and press T for trails to see the figure drawn out.
+#
+# format: name,mass,px,py,pz,vx,vy,vz,r,g,b[,radius]
+@G=1.0
+@softening=0.0001
+@dt=5e-05
+@timescale=0.5
+@zeroMomentum=1
+one,1,-1,0,0,0.080584,0.588836,0,1,0.75,0.45,0.14
+two,1,1,0,0,0.080584,0.588836,0,0.55,0.85,1,0.14
+three,1,0,0,0,-0.161168,-1.177672,0,0.7,1,0.65,0.14
