@@ -4,6 +4,8 @@ A 3D N-body gravity simulator/visualiser in C++ (OpenGL 3.3). Loads a scene of
 objects from a file and shows the motion with selectable projections, stereoscopic
 3D modes, VR output, adjustable speed, pause/restart, and configurable motion trails.
 
+![Gravity3D rendering an N-body system — glowing point-sprite bodies with motion trails](gravity3d.jpg)
+
 ---
 
 ## Features at a glance
